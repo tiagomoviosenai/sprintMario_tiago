@@ -25,6 +25,9 @@ try {
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Mario Jump - Jogo com Ranking MySQL</title>
     
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="css/style.css">
 </head>
 <body>
@@ -36,17 +39,35 @@ try {
                 <span class="label">JOGADOR:</span>
                 <span class="value" id="hud-player-name">---</span>
             </div>
-            <div class="score-info">
-                <span class="label">PONTOS:</span>
-                <span class="value" id="score-display">0</span>
+            
+            <div class="hud-stats">
+                <div class="lives-info">
+                    <span class="label">VIDAS:</span>
+                    <span class="value" id="lives-display">❤️❤️❤️</span>
+                </div>
+                <div class="level-info">
+                    <span class="label">NÍVEL:</span>
+                    <span class="value" id="level-display">1</span>
+                </div>
+                <div class="coins-info">
+                    <span class="label">🪙 MOEDAS:</span>
+                    <span class="value" id="coins-display">0</span>
+                </div>
+                <div class="score-info">
+                    <span class="label">PONTOS:</span>
+                    <span class="value" id="score-display">0</span>
+                </div>
             </div>
         </header>
 
         
         <main class="game-board" id="game-board">
-            <img src="assets/clouds.png" class="clouds" alt="Nuvens">
             <img src="assets/fazendeiro.gif" class="fazendeiro" alt="Fazendeiro">
             <img src="assets/toco.png" class="toco" alt="toco">
+            
+            <!-- Texto flutuante do +5 da moeda -->
+            <div id="plus-five">+5</div>
+            
             <span class="jump-tip" id="jump-tip">Pressione ESPAÇO ou clique para pular</span>
         </main>
     </div>
@@ -72,7 +93,6 @@ try {
                         autofocus
                     >
 
-                    <!-- Botão de escolher personagem (só habilita com nome digitado) -->
                     <button type="button" class="btn btn-character" id="btn-choose-character" disabled>
                         ESCOLHER PERSONAGEM
                     </button>
@@ -81,7 +101,6 @@ try {
 
                 <div class="modal-actions">
                     <button type="submit" class="btn btn-primary" id="btn-start">INICIAR JOGO</button>
-                    <button type="button" class="btn btn-secondary" id="btn-view-ranking">VER RANKING</button>
                 </div>
             </form>
 

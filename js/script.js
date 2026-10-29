@@ -1,23 +1,22 @@
-/**
- * Super Mario Jump - Lógica do Jogo e Integração com Ranking MySQL (Laragon)
- */
-
 document.addEventListener('DOMContentLoaded', () => {
-    // Elementos do Jogo
+    // Elementos do jogo
     const fazendeiro = document.querySelector('.fazendeiro');
-    const personagem = fazendeiro; // alias usado nas funções
-    const mario = fazendeiro;      // alias usado nas funções
-    const toco = document.querySelector('.toco'); // Alterado de pipe para toco
+    const toco = document.querySelector('.toco');
+
+    const plusFive = document.getElementById('plus-five');
+    const coinsDisplay = document.getElementById('coins-display');
+    const scoreDisplay = document.getElementById('score-display');
+    const levelDisplay = document.getElementById('level-display');
+    const livesDisplay = document.getElementById('lives-display');
+
     const gameBoard = document.getElementById('game-board');
     const hudPlayerName = document.getElementById('hud-player-name');
-    const scoreDisplay = document.getElementById('score-display');
     const jumpTip = document.getElementById('jump-tip');
 
-    // Modais e Telas
+    // Modais
     const startModal = document.getElementById('start-modal');
     const startForm = document.getElementById('start-form');
     const playerInput = document.getElementById('player-input');
-    const btnViewRanking = document.getElementById('btn-view-ranking');
 
     const gameoverModal = document.getElementById('gameover-modal');
     const finalScoreValue = document.getElementById('final-score-value');
@@ -33,81 +32,187 @@ document.addEventListener('DOMContentLoaded', () => {
     const characterGrid = document.getElementById('character-grid');
     const btnStartCharacter = document.getElementById('btn-start-character');
 
-    // ⬇️ Edite/adicione seus personagens aqui
-    const CHARACTERS = [
-        { id: 'fazendeiro', nome: 'Fazendeiro', img: 'assets/fazendeiro.gif', gameOver: 'assets/game-over.png' },
-        { id: 'mario',      nome: 'Mario',      img: 'assets/mario.gif',      gameOver: 'assets/game-over.png' },
-        { id: 'sonic',      nome: 'Sonic',      img: 'assets/sonic.gif',      gameOver: 'assets/game-over-sonic.gif' },
-        { id: 'galinha',    nome: 'Galinha',    img: 'assets/galinha.gif',    gameOver: 'assets/game-over.png' }
+    const ALL_CHARACTERS = [
+        {
+            id: 'fazendeiro',
+            nome: 'Fazendeiro',
+            img: 'assets/fazendeiro.gif',
+            gameOver: 'assets/game-over.png'
+        },
+        {
+            id: 'mario',
+            nome: 'Mario',
+            img: 'assets/mario.gif',
+            gameOver: 'assets/game-over.png'
+        },
+        {
+            id: 'sonic',
+            nome: 'Sonic',
+            img: 'assets/sonic.gif',
+            gameOver: 'assets/game-over.png'
+        },
+        {
+            id: 'galinha',
+            nome: 'Galinha',
+            img: 'assets/galinha.gif',
+            gameOver: 'assets/game-over.png'
+        },
+        {
+            id: 'bob',
+            nome: 'Bob',
+            img: 'assets/bob.gif',
+            gameOver: 'assets/game-over.png',
+            isSecret: true
+        }
     ];
 
-    let selectedCharacter =
-        CHARACTERS.find(c => c.id === localStorage.getItem('mario_jump_character')) || CHARACTERS[0];
+    let selectedCharacter = ALL_CHARACTERS.find(
+        c => c.id === localStorage.getItem('mario_jump_character') && !c.isSecret
+    ) || ALL_CHARACTERS[0];
 
-    // Variáveis de Estado
     let currentPlayer = '';
     let score = 0;
+    let coins = 0;
     let isPlaying = false;
+
+    // Vidas
+    const VIDAS_INICIAIS = 3;
+    const TEMPO_INVULNERAVEL = 1500;
+    let lives = VIDAS_INICIAIS;
+    let invulneravel = false;
+    let invulneravelTimeout = null;
+    let blinkInterval = null;
+
     let gameLoop = null;
     let scoreLoop = null;
 
-    // Recupera último nome utilizado caso exista
+    // Velocidade e nível
+    let currentSpeed = 2.5;
+    let currentLevel = 1;
+    let levelMessageTimeout = null;
+
+    // Mensagem de subida de nível
+    const levelMessage = document.createElement('div');
+    levelMessage.id = 'level-up-message';
+
+    Object.assign(levelMessage.style, {
+        fontFamily: "'Press Start 2P', monospace",
+        lineHeight: '1.5',
+        position: 'absolute',
+        top: '25%',
+        left: '50%',
+        transform: 'translate(-50%, -50%) scale(0.8)',
+        padding: '14px 22px',
+        background: 'rgba(0, 0, 0, 0.85)',
+        color: '#ffdf00',
+        border: '3px solid #ffdf00',
+        borderRadius: '12px',
+        fontSize: 'clamp(12px, 2.5vw, 22px)',
+        fontWeight: '400',
+        textAlign: 'center',
+        textShadow: '2px 2px 0 #7a4200',
+        zIndex: '1000',
+        pointerEvents: 'none',
+        opacity: '0',
+        transition: 'opacity 0.2s ease, transform 0.2s ease',
+        whiteSpace: 'nowrap'
+    });
+
+    gameBoard.appendChild(levelMessage);
+
+    // Sistema de moedas
+    const run = {
+        moedasLista: []
+    };
+
+    let tempoUltimaMoeda = 0;
+    const dt = 0.01;
+
+    // Recupera o nome salvo
     const savedName = localStorage.getItem('mario_jump_player');
+
     if (savedName && playerInput) {
         playerInput.value = savedName;
     }
 
-    // ---------- ESCOLHA DE PERSONAGEM ----------
+    // Atualiza o estado do personagem
+    function updateCharacterState() {
+        const nameValue = playerInput.value.trim();
+        const nomeDigitado = nameValue.toLowerCase();
 
-    // Botão só habilita quando há nome digitado
-    function updateCharacterButton() {
-        btnChooseCharacter.disabled = playerInput.value.trim() === '';
+        if (btnChooseCharacter) {
+            btnChooseCharacter.disabled = nameValue === '';
+        }
+
+        if (nomeDigitado !== 'bob' && selectedCharacter.id === 'bob') {
+            selectedCharacter = ALL_CHARACTERS[0];
+            localStorage.setItem('mario_jump_character', ALL_CHARACTERS[0].id);
+        }
+
+        updateSelectedLabel();
+        applyCharacter();
     }
-    playerInput.addEventListener('input', updateCharacterButton);
-    updateCharacterButton();
+
+    playerInput.addEventListener('input', updateCharacterState);
 
     function updateSelectedLabel() {
-        characterSelected.textContent = `Personagem: ${selectedCharacter.nome}`;
+        if (characterSelected) {
+            characterSelected.textContent = `Personagem: ${selectedCharacter.nome}`;
+        }
     }
 
     function applyCharacter() {
-        personagem.src = selectedCharacter.img;
+        if (fazendeiro) {
+            fazendeiro.src = selectedCharacter.img;
+        }
     }
 
-    updateSelectedLabel();
-    applyCharacter();
+    updateCharacterState();
 
+    // Exibe os personagens disponíveis
     function renderCharacters() {
         characterGrid.innerHTML = '';
-        CHARACTERS.forEach(c => {
+        const nomeAtual = playerInput.value.trim().toLowerCase();
+
+        ALL_CHARACTERS.forEach(c => {
+            if (c.isSecret && nomeAtual !== 'bob') {
+                return;
+            }
+
             const card = document.createElement('button');
             card.type = 'button';
             card.className = 'character-card' + (c.id === selectedCharacter.id ? ' selected' : '');
-            card.innerHTML = `<img src="${c.img}" alt="${escapeHtml(c.nome)}"><span>${escapeHtml(c.nome)}</span>`;
+            card.innerHTML = `
+                <img src="${c.img}" alt="${escapeHtml(c.nome)}">
+                <span>${escapeHtml(c.nome)}</span>
+            `;
+
             card.addEventListener('click', () => {
-                // Apenas seleciona (o jogo começa no botão INICIAR JOGO)
                 selectedCharacter = c;
                 localStorage.setItem('mario_jump_character', c.id);
                 updateSelectedLabel();
                 applyCharacter();
-
-                characterGrid.querySelectorAll('.character-card').forEach(el => el.classList.remove('selected'));
-                card.classList.add('selected');
+                renderCharacters();
             });
+
             characterGrid.appendChild(card);
         });
     }
 
+    // Abre a escolha de personagem
     btnChooseCharacter.addEventListener('click', () => {
-        if (playerInput.value.trim() === '') return;
+        if (playerInput.value.trim() === '') {
+            return;
+        }
         renderCharacters();
         startModal.classList.remove('active');
         characterModal.classList.add('active');
     });
 
-    // INICIAR JOGO dentro da tela de personagem
+    // Inicia com o personagem escolhido
     btnStartCharacter.addEventListener('click', () => {
         const nameValue = playerInput.value.trim();
+
         if (!nameValue) {
             characterModal.classList.remove('active');
             startModal.classList.add('active');
@@ -117,22 +222,409 @@ document.addEventListener('DOMContentLoaded', () => {
 
         currentPlayer = nameValue;
         localStorage.setItem('mario_jump_player', currentPlayer);
-
+        updateCharacterState();
         characterModal.classList.remove('active');
         startGame();
     });
 
-    // ---------- JOGO ----------
+    // ==========================================
+    // SISTEMA DE MOEDAS
+    // ==========================================
+
+    function gerarMoeda() {
+        const altura = Math.random() < 0.5 ? 80 : 140;
+        criarMoeda(gameBoard.clientWidth, altura);
+    }
+
+    function gerarGrupoMoedas() {
+        const quantidade = Math.floor(Math.random() * 3) + 3;
+        const inicioX = gameBoard.clientWidth;
+        const altura = Math.random() < 0.5 ? 80 : 140;
+        const espacamento = 45;
+
+        for (let i = 0; i < quantidade; i++) {
+            criarMoeda(inicioX + i * espacamento, altura);
+        }
+    }
+
+    function criarMoeda(x, alturaDoChao) {
+        const elem = document.createElement('img');
+        elem.src = 'assets/moeda.gif';
+        elem.className = 'moeda';
+        elem.alt = 'Moeda';
+
+        elem.style.position = 'absolute';
+        elem.style.bottom = `${alturaDoChao}px`;
+        elem.style.width = '40px';
+        elem.style.height = '40px';
+        elem.style.left = `${x}px`;
+        elem.style.right = 'auto';
+        elem.style.animation = 'none';
+
+        gameBoard.appendChild(elem);
+
+        const y = gameBoard.clientHeight - alturaDoChao - 40;
+
+        run.moedasLista.push({
+            elem,
+            x,
+            y,
+            largura: 40,
+            altura: 40,
+            coletada: false,
+            tColeta: 0
+        });
+    }
+
+    function caixaMoeda(m) {
+        return {
+            x: m.x,
+            y: m.y,
+            largura: m.largura,
+            altura: m.altura
+        };
+    }
+
+    function colide(p, c) {
+        return (
+            p.x < c.x + c.largura &&
+            p.x + p.largura > c.x &&
+            p.y < c.y + c.altura &&
+            p.y + p.altura > c.y
+        );
+    }
+
+    function coletarMoeda(m) {
+        m.coletada = true;
+        somMoeda();
+        m.elem.style.display = 'none';
+
+        coins += 1;
+        score += 5;
+
+        if (coinsDisplay) {
+            coinsDisplay.textContent = coins;
+        }
+
+        scoreDisplay.textContent = score;
+
+        atualizarNivel();
+        mostrarMaisCinco();
+    }
+
+    function atualizarMoedas() {
+        tempoUltimaMoeda += dt;
+
+        if (tempoUltimaMoeda >= 3) {
+            if (Math.random() < 0.5) {
+                gerarMoeda();
+            } else {
+                gerarGrupoMoedas();
+            }
+            tempoUltimaMoeda = 0;
+        }
+
+        const player = {
+            x: fazendeiro.offsetLeft + 30,
+            y: fazendeiro.offsetTop + 15,
+            largura: Math.max(40, fazendeiro.offsetWidth - 60),
+            altura: Math.max(40, fazendeiro.offsetHeight - 25)
+        };
+
+        for (let i = 0; i < run.moedasLista.length; i++) {
+            const m = run.moedasLista[i];
+
+            m.x -= (400 / currentSpeed) * dt;
+            m.elem.style.left = `${m.x}px`;
+
+            if (m.coletada) {
+                m.tColeta += dt;
+            } else if (colide(player, caixaMoeda(m))) {
+                coletarMoeda(m);
+            }
+
+            if (m.x < -50 || m.tColeta > 1) {
+                if (m.elem.parentNode) {
+                    m.elem.parentNode.removeChild(m.elem);
+                }
+                run.moedasLista.splice(i, 1);
+                i--;
+            }
+        }
+    }
+
+    function limpaMoedas() {
+        run.moedasLista.forEach(m => {
+            if (m.elem.parentNode) {
+                m.elem.parentNode.removeChild(m.elem);
+            }
+        });
+        run.moedasLista = [];
+        tempoUltimaMoeda = 0;
+    }
+
+    // ==========================================
+    // SONS (Web Audio API)
+    // ==========================================
+
+    let audioCtx = null;
+
+    function iniciarAudio() {
+        if (!audioCtx) {
+            const AC = window.AudioContext || window.webkitAudioContext;
+            if (!AC) return null;
+            audioCtx = new AC();
+        }
+        if (audioCtx.state === 'suspended') {
+            audioCtx.resume();
+        }
+        return audioCtx;
+    }
+
+    function tocarNota(freq, inicio, duracao, tipo = 'square', volume = 0.12, freqFim = null) {
+        const ctx = iniciarAudio();
+        if (!ctx) return;
+
+        const t0 = ctx.currentTime + inicio;
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+
+        osc.type = tipo;
+        osc.frequency.setValueAtTime(freq, t0);
+
+        if (freqFim) {
+            osc.frequency.exponentialRampToValueAtTime(freqFim, t0 + duracao);
+        }
+
+        gain.gain.setValueAtTime(volume, t0);
+        gain.gain.exponentialRampToValueAtTime(0.0001, t0 + duracao);
+
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+
+        osc.start(t0);
+        osc.stop(t0 + duracao + 0.02);
+    }
+
+    // Som de pulo estilo Mario Bros (frequência subindo rapidamente)
+    function somPuloSintetico() {
+        tocarNota(150, 0, 0.15, 'square', 0.15, 600);
+    }
+
+    function somMoedaSintetico() {
+        tocarNota(988, 0, 0.08);
+        tocarNota(1319, 0.08, 0.35);
+    }
+
+    function somDanoSintetico() {
+        tocarNota(500, 0, 0.35, 'sawtooth', 0.12, 90);
+    }
+
+    function somMorteSintetico() {
+        const notas = [523, 494, 466, 440, 392, 330, 262, 196];
+        notas.forEach((n, i) => {
+            tocarNota(n, i * 0.14, 0.2, 'triangle', 0.2);
+        });
+        tocarNota(130, notas.length * 0.14, 0.6, 'square', 0.1, 55);
+    }
+
+    const ARQUIVOS_SOM = {
+        moeda: 'assets/sons/moeda.wav',
+        dano: 'assets/sons/dano.wav',
+        morte: 'assets/sons/morte.wav',
+        pulo: 'assets/sons/pulo.wav'
+    };
+
+    const audiosCarregados = {};
+
+    Object.keys(ARQUIVOS_SOM).forEach(nome => {
+        const audio = new Audio(ARQUIVOS_SOM[nome]);
+        audio.preload = 'auto';
+        audio.volume = 0.6;
+        audio.addEventListener('error', () => {
+            audio.falhou = true;
+        });
+        audiosCarregados[nome] = audio;
+    });
+
+    function tocarSom(nome, alternativo) {
+        const audio = audiosCarregados[nome];
+        if (!audio || audio.falhou) {
+            alternativo();
+            return;
+        }
+        const copia = audio.cloneNode();
+        copia.volume = audio.volume;
+        copia.play().catch(() => alternativo());
+    }
+
+    function somPulo() {
+        tocarSom('pulo', somPuloSintetico);
+    }
+
+    function somMoeda() {
+        tocarSom('moeda', somMoedaSintetico);
+    }
+
+    function somDano() {
+        tocarSom('dano', somDanoSintetico);
+    }
+
+    function somMorte() {
+        tocarSom('morte', somMorteSintetico);
+    }
+
+    // ==========================================
+    // SISTEMA DE VIDAS E NÍVEIS
+    // ==========================================
+
+    function atualizarVidas() {
+        if (!livesDisplay) return;
+        livesDisplay.textContent = '❤️'.repeat(Math.max(lives, 0));
+    }
+
+    function pararPiscar() {
+        clearInterval(blinkInterval);
+        clearTimeout(invulneravelTimeout);
+        blinkInterval = null;
+        invulneravelTimeout = null;
+        invulneravel = false;
+        fazendeiro.style.opacity = '1';
+    }
+
+    function perderVida(tocoPosition, fazendeiroPosition) {
+        lives -= 1;
+        atualizarVidas();
+
+        coins = 0;
+        if (coinsDisplay) {
+            coinsDisplay.textContent = coins;
+        }
+
+        if (lives <= 0) {
+            pararPiscar();
+            somMorte();
+            triggerGameOver(tocoPosition, fazendeiroPosition);
+            return;
+        }
+
+        somDano();
+
+        invulneravel = true;
+        clearInterval(blinkInterval);
+        clearTimeout(invulneravelTimeout);
+
+        blinkInterval = setInterval(() => {
+            fazendeiro.style.opacity =
+                fazendeiro.style.opacity === '0.3' ? '1' : '0.3';
+        }, 120);
+
+        invulneravelTimeout = setTimeout(pararPiscar, TEMPO_INVULNERAVEL);
+    }
+
+    const FUNDOS = ['assets/fundog.jpg', 'assets/escuro.jpg'];
+
+    FUNDOS.forEach(src => {
+        const img = new Image();
+        img.src = src;
+    });
+
+    const NIVEIS_POR_FUNDO = 5;
+
+    function atualizarFundo() {
+        const indice = Math.floor(currentLevel / NIVEIS_POR_FUNDO) % 2;
+        gameBoard.style.backgroundImage = `url('${FUNDOS[indice]}')`;
+    }
+
+    function atualizarNivel() {
+        const novoNivel = Math.floor(score / 100) + 1;
+
+        if (novoNivel <= currentLevel) return;
+
+        currentLevel = novoNivel;
+
+        if (levelDisplay) {
+            levelDisplay.textContent = currentLevel;
+        }
+
+        const REDUCAO_POR_NIVEL = 0.2;
+        const VELOCIDADE_MAXIMA = 1.1;
+
+        currentSpeed = Math.max(
+            VELOCIDADE_MAXIMA,
+            2.5 - ((currentLevel - 1) * REDUCAO_POR_NIVEL)
+        );
+
+        const taxa = 2.5 / currentSpeed;
+        const anims = toco.getAnimations ? toco.getAnimations() : [];
+
+        if (anims.length && anims[0].updatePlaybackRate) {
+            anims[0].updatePlaybackRate(taxa);
+        } else {
+            toco.style.animationDuration = `${currentSpeed}s`;
+        }
+
+        atualizarFundo();
+        mostrarMensagemNivel(currentLevel);
+    }
+
+    function mostrarMensagemNivel(nivel) {
+        levelMessage.textContent = `🎉 SUBIU DE NÍVEL! NÍVEL ${nivel} 🎉`;
+        levelMessage.style.opacity = '1';
+        levelMessage.style.transform = 'translate(-50%, -50%) scale(1)';
+
+        if (levelMessageTimeout) {
+            clearTimeout(levelMessageTimeout);
+        }
+
+        levelMessageTimeout = setTimeout(() => {
+            esconderMensagemNivel();
+        }, 1800);
+    }
+
+    function esconderMensagemNivel() {
+        levelMessage.style.opacity = '0';
+        levelMessage.style.transform = 'translate(-50%, -50%) scale(0.8)';
+
+        if (levelMessageTimeout) {
+            clearTimeout(levelMessageTimeout);
+            levelMessageTimeout = null;
+        }
+    }
+
+    // ==========================================
+    // INÍCIO E RESET
+    // ==========================================
 
     function startGame() {
+        iniciarAudio();
+
         clearInterval(gameLoop);
         clearInterval(scoreLoop);
 
         resetElements();
 
         isPlaying = true;
+        lives = VIDAS_INICIAIS;
+        pararPiscar();
+        atualizarVidas();
         score = 0;
+        coins = 0;
+        currentLevel = 1;
+        currentSpeed = 2.5;
+
+        esconderMensagemNivel();
+
         scoreDisplay.textContent = '0';
+
+        if (levelDisplay) {
+            levelDisplay.textContent = '1';
+        }
+
+        if (coinsDisplay) {
+            coinsDisplay.textContent = '0';
+        }
+
         hudPlayerName.textContent = currentPlayer || 'Jogador';
 
         gameBoard.classList.add('running');
@@ -141,74 +633,125 @@ document.addEventListener('DOMContentLoaded', () => {
             if (isPlaying) {
                 score += 1;
                 scoreDisplay.textContent = score;
+                atualizarNivel();
             }
-        }, 100);
+        }, 300);
 
         gameLoop = setInterval(checkCollision, 10);
     }
 
     function resetElements() {
-        toco.style.animation = ''; // Alterado de pipe para toco
-        toco.style.left = '';      // Alterado de pipe para toco
+        currentSpeed = 2.5;
+        currentLevel = 1;
 
-        personagem.src = selectedCharacter.img; // usa o personagem escolhido
-        personagem.style.animation = '';
-        personagem.style.bottom = '0px';
-        personagem.style.width = '';
-        personagem.style.marginLeft = '';
-        personagem.classList.remove('jump');
+        lives = VIDAS_INICIAIS;
+        pararPiscar();
+        atualizarVidas();
+
+        atualizarFundo();
+        esconderMensagemNivel();
+
+        toco.style.animation = `toco-animation ${currentSpeed}s infinite linear`;
+        toco.style.animationDuration = `${currentSpeed}s`;
+        toco.style.left = '';
+
+        limpaMoedas();
+
+        fazendeiro.src = selectedCharacter.img;
+        fazendeiro.style.animation = '';
+        fazendeiro.style.bottom = '0px';
+        fazendeiro.style.width = '';
+        fazendeiro.style.marginLeft = '';
+        fazendeiro.classList.remove('jump');
 
         if (jumpTip) {
             jumpTip.style.opacity = '1';
         }
     }
 
+    // ==========================================
+    // PULO
+    // ==========================================
+
     function jump() {
         if (!isPlaying) return;
-        if (mario.classList.contains('jump')) return;
 
-        mario.classList.add('jump');
+        if (fazendeiro.classList.contains('jump')) return;
+
+        // Toca o som do Mario Bros
+        somPulo();
+
+        fazendeiro.classList.add('jump');
 
         if (jumpTip) {
             jumpTip.style.opacity = '0';
         }
 
-        setTimeout(() => {
-            mario.classList.remove('jump');
-        }, 500);
+        fazendeiro.addEventListener('animationend', () => {
+            fazendeiro.classList.remove('jump');
+        }, { once: true });
     }
+
+    // ==========================================
+    // COLISÕES
+    // ==========================================
 
     function checkCollision() {
         if (!isPlaying) return;
 
-        const tocoPosition = toco.offsetLeft; // Alterado de pipe para toco
-        const marioPosition = +window.getComputedStyle(mario).bottom.replace('px', '');
+        const chickenRect = fazendeiro.getBoundingClientRect();
+        const foxRect = toco.getBoundingClientRect();
 
-        // Alterado de pipe para toco
-        if (tocoPosition <= 120 && tocoPosition > 0 && marioPosition < 80) {
-            triggerGameOver(tocoPosition, marioPosition);
+        const margemHorizontal = 50;
+        const margemVertical = 50;
+
+        const colidiu =
+            chickenRect.right - margemHorizontal > foxRect.left + margemHorizontal &&
+            chickenRect.left + margemHorizontal < foxRect.right - margemHorizontal &&
+            chickenRect.bottom - margemVertical > foxRect.top + margemVertical &&
+            chickenRect.top + margemVertical < foxRect.bottom - margemVertical;
+
+        if (colidiu && !invulneravel) {
+            const bottomAtual = parseFloat(getComputedStyle(fazendeiro).bottom) || 0;
+            perderVida(toco.offsetLeft, bottomAtual);
+
+            if (!isPlaying) return;
         }
+
+        atualizarMoedas();
     }
 
-    function triggerGameOver(tocoPosition, marioPosition) { // Alterado de pipe para toco
+    function mostrarMaisCinco() {
+        if (!plusFive) return;
+        plusFive.classList.remove('animate-plus-five');
+        void plusFive.offsetWidth;
+        plusFive.classList.add('animate-plus-five');
+    }
+
+    // ==========================================
+    // GAME OVER & RANKING
+    // ==========================================
+
+    function triggerGameOver(tocoPosition, fazendeiroPosition) {
         isPlaying = false;
+
         clearInterval(gameLoop);
         clearInterval(scoreLoop);
 
         gameBoard.classList.remove('running');
 
-        toco.style.animation = 'none';            // Alterado de pipe para toco
-        toco.style.left = `${tocoPosition}px`;    // Alterado de pipe para toco
+        toco.style.animation = 'none';
+        toco.style.left = `${tocoPosition}px`;
 
-        mario.style.animation = 'none';
-        mario.style.bottom = `${marioPosition}px`;
-        mario.src = selectedCharacter.gameOver; // imagem de game over do personagem
-        mario.style.width = '75px';
-        mario.style.marginLeft = '50px';
+        fazendeiro.style.animation = 'none';
+        fazendeiro.style.bottom = `${fazendeiroPosition}px`;
+        fazendeiro.src = selectedCharacter.gameOver;
+        fazendeiro.style.width = '75px';
+        fazendeiro.style.marginLeft = '50px';
 
         finalScoreValue.textContent = score;
-        saveStatusMsg.textContent = 'Salvando pontuação no banco...';
-        saveStatusMsg.style.color = '#ffcc00';
+        saveStatusMsg.textContent = 'A gravar pontuação na base de dados...';
+        saveStatusMsg.style.color = '#ffd700';
 
         gameoverModal.classList.add('active');
 
@@ -218,31 +761,27 @@ document.addEventListener('DOMContentLoaded', () => {
     function saveScore(playerName, finalScore) {
         fetch('salvar_ranking.php', {
             method: 'POST',
-            headers: {
-                'Content-Type': 'application/json'
-            },
-            body: JSON.stringify({
-                nome: playerName,
-                pontos: finalScore
-            })
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ nome: playerName, pontos: finalScore })
         })
         .then(res => res.json())
         .then(data => {
             if (data.status === 'success') {
-                saveStatusMsg.textContent = 'Pontuação registrada no banco!';
-                saveStatusMsg.style.color = '#10b981';
+                saveStatusMsg.textContent = 'Pontuação registada!';
+                saveStatusMsg.style.color = '#4ade80';
+
                 if (data.ranking) {
                     renderRanking(data.ranking, playerName, finalScore);
                 }
             } else {
-                saveStatusMsg.textContent = '⚠️ ' + (data.message || 'Erro ao registrar.');
-                saveStatusMsg.style.color = '#ef4444';
+                saveStatusMsg.textContent = '⚠️ ' + (data.message || 'Erro ao registar.');
+                saveStatusMsg.style.color = '#f87171';
             }
         })
         .catch(err => {
             console.error('Erro na requisição:', err);
-            saveStatusMsg.textContent = '⚠️ Erro ao conectar ao servidor Laragon.';
-            saveStatusMsg.style.color = '#ef4444';
+            saveStatusMsg.textContent = '⚠️ Erro ao conectar ao servidor.';
+            saveStatusMsg.style.color = '#f87171';
         });
     }
 
@@ -259,10 +798,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderRanking(list, highlightName = null, highlightScore = null) {
         if (!rankingBody) return;
+
         rankingBody.innerHTML = '';
 
         if (!list || list.length === 0) {
-            rankingBody.innerHTML = '<tr><td colspan="3" class="loading-cell">Nenhuma pontuação gravada ainda. Jogue para ser o 1º!</td></tr>';
+            rankingBody.innerHTML = `
+                <tr>
+                    <td colspan="3" class="loading-cell">
+                        Nenhuma pontuação gravada ainda. Jogue para ser o 1º!
+                    </td>
+                </tr>
+            `;
             return;
         }
 
@@ -271,7 +817,12 @@ document.addEventListener('DOMContentLoaded', () => {
         list.forEach((item, index) => {
             const tr = document.createElement('tr');
 
-            if (!highlighted && highlightName && item.nome === highlightName && parseInt(item.pontos, 10) === highlightScore) {
+            if (
+                !highlighted &&
+                highlightName &&
+                item.nome === highlightName &&
+                parseInt(item.pontos, 10) === highlightScore
+            ) {
                 tr.classList.add('highlight-current');
                 highlighted = true;
             }
@@ -301,7 +852,9 @@ document.addEventListener('DOMContentLoaded', () => {
             .replace(/'/g, '&#039;');
     }
 
-    // ---------- EVENTOS ----------
+    // ==========================================
+    // EVENTOS DE ENTRADA
+    // ==========================================
 
     startForm.addEventListener('submit', (e) => {
         e.preventDefault();
@@ -314,21 +867,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
         currentPlayer = nameValue;
         localStorage.setItem('mario_jump_player', currentPlayer);
+        updateCharacterState();
 
         startModal.classList.remove('active');
         startGame();
     });
 
-    btnViewRanking.addEventListener('click', () => {
-        fetchRanking();
-        finalScoreValue.textContent = '---';
-        saveStatusMsg.textContent = '';
-        startModal.classList.remove('active');
-        gameoverModal.classList.add('active');
-    });
-
     btnRestart.addEventListener('click', () => {
         gameoverModal.classList.remove('active');
+
         if (!currentPlayer) {
             startModal.classList.add('active');
             playerInput.focus();
@@ -340,15 +887,11 @@ document.addEventListener('DOMContentLoaded', () => {
     btnChangePlayer.addEventListener('click', () => {
         gameoverModal.classList.remove('active');
         resetElements();
-        startModal.classList.add('active');
 
-        // Mantém o nome anterior preenchido (selecionado, para digitar por cima)
-        // assim o botão ESCOLHER PERSONAGEM continua habilitado.
-        playerInput.value = currentPlayer || localStorage.getItem('mario_jump_player') || '';
-        updateCharacterButton();
-        updateSelectedLabel();
+        startModal.classList.add('active');
+        playerInput.value = '';
+        updateCharacterState();
         playerInput.focus();
-        playerInput.select();
     });
 
     document.addEventListener('keydown', (e) => {
